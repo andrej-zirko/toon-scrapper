@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Home() {
   const [url, setUrl] = useState('https://www.bazos.sk/search.php?hledat=dell+optiplex&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=H%C4%BEada%C5%A5&order=&kitx=ano');
@@ -10,26 +10,92 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [detectedSite, setDetectedSite] = useState(null);
+  const [progressMessage, setProgressMessage] = useState('');
+  const [productsFound, setProductsFound] = useState(0);
+
+  // Detect which site is being used based on URL
+  const detectSite = (urlString) => {
+    try {
+      const parsedUrl = new URL(urlString);
+      const hostname = parsedUrl.hostname;
+
+      if (hostname.includes('bazos.sk')) {
+        return 'bazos';
+      } else if (hostname.includes('mojadm.sk')) {
+        return 'mojadm';
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Auto-detect site when URL changes
+  useEffect(() => {
+    setDetectedSite(detectSite(url));
+  }, [url]);
 
   const handleScrape = async () => {
     setLoading(true);
     setError(null);
     setResults([]);
+    setProgressMessage('Starting scrape...');
+    setProductsFound(0);
 
     try {
       // Only append pages parameter if it has a value and limitPages is true
       const pageParam = (limitPages && pages) ? `&pages=${pages}` : '';
-      const response = await fetch(`/api/scrape?url=${encodeURIComponent(url)}${pageParam}`);
+      const streamUrl = `/api/scrape?url=${encodeURIComponent(url)}${pageParam}&stream=true`;
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch data');
-      }
+      console.log('Creating EventSource with URL:', streamUrl);
+      const eventSource = new EventSource(streamUrl);
 
-      const data = await response.json();
-      setResults(data.results || []);
+      eventSource.onopen = () => {
+        console.log('EventSource connection opened');
+      };
+
+      eventSource.onmessage = (event) => {
+        console.log('EventSource message received:', event.data);
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Parsed data:', data);
+
+          if (data.type === 'progress') {
+            console.log('Progress update:', data.message, 'Count:', data.count);
+            setProgressMessage(data.message);
+            setProductsFound(data.count || 0);
+          } else if (data.type === 'complete') {
+            console.log('Scraping complete, results:', data.results?.length);
+            setResults(data.results || []);
+            setProductsFound(data.results?.length || 0);
+            setProgressMessage('');
+            setLoading(false);
+            eventSource.close();
+          } else if (data.type === 'error') {
+            console.error('Scraping error:', data.message);
+            setError(data.message);
+            setProgressMessage('');
+            setLoading(false);
+            eventSource.close();
+          }
+        } catch (parseError) {
+          console.error('Failed to parse event data:', parseError, event.data);
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error('EventSource error:', err);
+        setError('Connection error occurred');
+        setProgressMessage('');
+        setLoading(false);
+        eventSource.close();
+      };
+
     } catch (err) {
+      console.error('Scrape error:', err);
       setError(err.message);
-    } finally {
+      setProgressMessage('');
       setLoading(false);
     }
   };
@@ -51,10 +117,39 @@ export default function Home() {
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200 py-4">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-            <span className="text-orange-500">Bazoš</span> Scraper
-          </h1>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center mb-3">
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+              <span className="bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent">Product</span> Scraper
+            </h1>
+          </div>
+
+          {/* Supported Sites Indicator */}
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-600 font-medium">Supported sites:</span>
+            <div className="flex gap-2">
+              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'bazos'
+                ? 'border-orange-500 bg-orange-50 shadow-sm'
+                : 'border-gray-200 bg-white opacity-60'
+                }`}>
+                <img src="/logos/bazos.png" alt="Bazos.sk" className="h-6" />
+              </div>
+              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'mojadm'
+                ? 'border-blue-500 bg-blue-50 shadow-sm'
+                : 'border-gray-200 bg-white opacity-60'
+                }`}>
+                <img src="/logos/mojadm.png" alt="mojadm.sk" className="h-6" />
+              </div>
+            </div>
+            {detectedSite && (
+              <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                Detected: {detectedSite === 'bazos' ? 'Bazos.sk' : 'mojadm.sk'}
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -128,6 +223,28 @@ export default function Home() {
             <div className="mt-4 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-r">
               <p className="font-bold">Error</p>
               <p>{error}</p>
+            </div>
+          )}
+
+          {/* Progress Message */}
+          {loading && progressMessage && (
+            <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r">
+              <div className="flex items-center gap-3">
+                <svg className="animate-spin h-5 w-5 text-blue-600 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <div className="flex-1">
+                  <p className="font-semibold text-blue-900">{progressMessage}</p>
+                  {productsFound > 0 && (
+                    <div className="mt-2">
+                      <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-bold inline-block">
+                        {productsFound} items
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
