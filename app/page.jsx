@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 export default function Home() {
   const [url, setUrl] = useState('https://www.bazos.sk/search.php?hledat=dell+optiplex&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=H%C4%BEada%C5%A5&order=&kitx=ano');
+  const [limitPages, setLimitPages] = useState(true);
   const [pages, setPages] = useState('1'); // Default 1, but string to allow empty
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -16,8 +17,8 @@ export default function Home() {
     setResults([]);
 
     try {
-      // Only append pages parameter if it has a value
-      const pageParam = pages ? `&pages=${pages}` : '';
+      // Only append pages parameter if it has a value and limitPages is true
+      const pageParam = (limitPages && pages) ? `&pages=${pages}` : '';
       const response = await fetch(`/api/scrape?url=${encodeURIComponent(url)}${pageParam}`);
 
       if (!response.ok) {
@@ -73,16 +74,34 @@ export default function Home() {
               />
             </div>
 
-            <div className="w-full md:w-32">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pages</label>
-              <input
-                type="number"
-                value={pages}
-                onChange={(e) => setPages(e.target.value)}
-                placeholder="All"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all outline-none"
-                min="1"
-              />
+            <div className="w-full md:w-48 flex flex-col justify-end">
+              <div className="flex items-center mb-2">
+                <input
+                  id="limit-pages"
+                  type="checkbox"
+                  checked={limitPages}
+                  onChange={(e) => setLimitPages(e.target.checked)}
+                  className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                />
+                <label htmlFor="limit-pages" className="ml-2 block text-sm font-medium text-gray-700">
+                  Limit pages
+                </label>
+              </div>
+
+              {limitPages ? (
+                <input
+                  type="number"
+                  value={pages}
+                  onChange={(e) => setPages(e.target.value)}
+                  placeholder="Pages"
+                  className="w-full p-3 border border-orange-200 bg-orange-50 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all outline-none"
+                  min="1"
+                />
+              ) : (
+                <div className="h-[50px] flex items-center px-3 text-gray-400 text-sm italic border border-transparent">
+                  Scraping all pages
+                </div>
+              )}
             </div>
 
             <button
