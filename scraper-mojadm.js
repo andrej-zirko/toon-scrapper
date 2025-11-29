@@ -118,7 +118,7 @@ async function scrapeProductDetails(page, link, basicInfo) {
     }
 }
 
-async function scrapeMojadm(startUrl, maxPages = Infinity, onProgress = null) {
+async function scrapeMojadm(startUrl, maxPages = Infinity, onProgress = null, abortSignal = null) {
     let browser, chrome;
 
     try {
@@ -150,6 +150,13 @@ async function scrapeMojadm(startUrl, maxPages = Infinity, onProgress = null) {
                 if (onProgress) onProgress('Loading products with infinite scroll...', 0);
 
                 while (clickAttempts < maxClickAttempts) {
+                    // Check for cancellation
+                    if (abortSignal?.aborted) {
+                        console.error('Scraping cancelled by user');
+                        if (onProgress) onProgress('Scraping cancelled', allItems.length);
+                        throw new Error('Scraping cancelled');
+                    }
+
                     // Scroll to bottom first to make button visible
                     await page.evaluate(() => {
                         window.scrollTo(0, document.body.scrollHeight);
@@ -282,6 +289,13 @@ async function scrapeMojadm(startUrl, maxPages = Infinity, onProgress = null) {
 
                 // Fetch details for each product in batches of 3
                 for (let i = 0; i < products.length; i += 3) {
+                    // Check for cancellation
+                    if (abortSignal?.aborted) {
+                        console.error('Scraping cancelled by user');
+                        if (onProgress) onProgress('Scraping cancelled', allItems.length);
+                        throw new Error('Scraping cancelled');
+                    }
+
                     const batch = products.slice(i, i + 3);
                     const detailedProducts = [];
 
@@ -305,6 +319,13 @@ async function scrapeMojadm(startUrl, maxPages = Infinity, onProgress = null) {
         } else {
             // URL-based pagination approach: use currentPage parameter
             for (let currentPage = 1; currentPage <= maxPages; currentPage++) {
+                // Check for cancellation
+                if (abortSignal?.aborted) {
+                    console.error('Scraping cancelled by user');
+                    if (onProgress) onProgress('Scraping cancelled', allItems.length);
+                    throw new Error('Scraping cancelled');
+                }
+
                 const pageUrl = startUrl.replace(/currentPage=\d+/, `currentPage=${currentPage}`);
                 console.error(`Scraping page ${currentPage}: ${pageUrl}`);
 

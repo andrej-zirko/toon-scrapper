@@ -26,21 +26,29 @@ async function scrapeItem(link, basicInfo) {
 
   const $ = cheerio.load(html);
   const body = cleanText($('.popisdetail').text());
-  
+
   return {
     ...basicInfo,
     body: body || basicInfo.summary // Fallback to summary if detailed body is missing
   };
 }
 
-async function scrapeBazos(startUrl, maxPages = Infinity) {
+async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abortSignal = null) {
   let currentUrl = startUrl;
   let pageCount = 0;
   const allItems = [];
 
   console.error('Starting scrape...');
+  if (onProgress) onProgress('Starting Bazos scrape...', 0);
 
   while (currentUrl && pageCount < maxPages) {
+    // Check for cancellation
+    if (abortSignal?.aborted) {
+      console.error('Scraping cancelled by user');
+      if (onProgress) onProgress('Scraping cancelled', allItems.length);
+      throw new Error('Scraping cancelled');
+    }
+
     console.error(`Scraping page ${pageCount + 1}: ${currentUrl}`);
     const html = await fetchHtml(currentUrl);
     if (!html) break;
@@ -52,7 +60,7 @@ async function scrapeBazos(startUrl, maxPages = Infinity) {
       const $el = $(el);
       const titleEl = $el.find('.inzeratynadpis .nadpis a');
       const link = titleEl.attr('href');
-      
+
       const fullLink = link ? (link.startsWith('http') ? link : `https://pc.bazos.sk${link}`) : null;
 
       if (fullLink) {
@@ -75,6 +83,7 @@ async function scrapeBazos(startUrl, maxPages = Infinity) {
       const promises = batch.map(item => scrapeItem(item.link, item));
       const results = await Promise.all(promises);
       allItems.push(...results);
+      if (onProgress) onProgress(`Scraping page ${pageCount + 1}...`, allItems.length);
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
@@ -87,7 +96,7 @@ async function scrapeBazos(startUrl, maxPages = Infinity) {
     } else {
       currentUrl = null;
     }
-    
+
     if (pageCount >= maxPages) break;
   }
 

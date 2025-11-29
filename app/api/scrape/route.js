@@ -33,6 +33,8 @@ export async function GET(request) {
     // If streaming is requested, use Server-Sent Events
     if (stream) {
       const encoder = new TextEncoder();
+      const abortController = new AbortController();
+
       const customReadable = new ReadableStream({
         async start(controller) {
           const sendEvent = (data) => {
@@ -47,18 +49,27 @@ export async function GET(request) {
 
             let results;
             if (BAZOS_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeBazos(url, pagesToScrape, onProgress);
+              results = await scrapeBazos(url, pagesToScrape, onProgress, abortController.signal);
             } else if (MOJADM_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeMojadm(url, pagesToScrape, onProgress);
+              results = await scrapeMojadm(url, pagesToScrape, onProgress, abortController.signal);
             }
 
             sendEvent({ type: 'complete', results });
           } catch (error) {
             console.error('Scraping error:', error);
-            sendEvent({ type: 'error', message: 'Scraping failed' });
+            if (error.message === 'Scraping cancelled') {
+              sendEvent({ type: 'cancelled', message: 'Scraping was cancelled' });
+            } else {
+              sendEvent({ type: 'error', message: 'Scraping failed' });
+            }
           } finally {
             controller.close();
           }
+        },
+        cancel() {
+          // This is called when the client closes the connection
+          console.log('Client disconnected, aborting scrape...');
+          abortController.abort();
         }
       });
 
