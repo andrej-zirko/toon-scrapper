@@ -1,9 +1,15 @@
 import { scrapeBazos } from '@/scraper';
 import { scrapeMojadm } from '@/scraper-mojadm';
+import { scrapeAlza } from '@/scraper-alza';
+import { scrapeNay } from '@/scraper-nay';
+import { scrapeDecathlon } from '@/scraper-decathlon';
 
 const BAZOS_DOMAINS = ['bazos.sk', 'pc.bazos.sk', 'www.bazos.sk', 'auto.bazos.sk', 'dom.bazos.sk', 'elektro.bazos.sk', 'hudba.bazos.sk', 'knihy.bazos.sk', 'mobily.bazos.sk', 'motocykle.bazos.sk', 'nabytok.bazos.sk', 'oblecenie.bazos.sk', 'sluzby.bazos.sk', 'sport.bazos.sk', 'stroje.bazos.sk', 'vstupenky.bazos.sk', 'zvierata.bazos.sk', 'deti.bazos.sk', 'ostatne.bazos.sk'];
 const MOJADM_DOMAINS = ['mojadm.sk', 'www.mojadm.sk'];
-const ALLOWED_DOMAINS = [...BAZOS_DOMAINS, ...MOJADM_DOMAINS];
+const ALZA_DOMAINS = ['alza.sk', 'www.alza.sk'];
+const NAY_DOMAINS = ['nay.sk', 'www.nay.sk'];
+const DECATHLON_DOMAINS = ['decathlon.sk', 'www.decathlon.sk'];
+const ALLOWED_DOMAINS = [...BAZOS_DOMAINS, ...MOJADM_DOMAINS, ...ALZA_DOMAINS, ...NAY_DOMAINS, ...DECATHLON_DOMAINS];
 const MAX_PAGES = 20;
 
 export async function GET(request) {
@@ -22,7 +28,7 @@ export async function GET(request) {
   try {
     const parsedUrl = new URL(url);
     if (!ALLOWED_DOMAINS.includes(parsedUrl.hostname)) {
-      return new Response(JSON.stringify({ error: 'Invalid domain. Only bazos.sk and mojadm.sk are supported.' }), {
+      return new Response(JSON.stringify({ error: 'Invalid domain. Only bazos.sk, mojadm.sk, alza.sk, nay.sk, and decathlon.sk are supported.' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -52,6 +58,12 @@ export async function GET(request) {
               results = await scrapeBazos(url, pagesToScrape, onProgress, abortController.signal);
             } else if (MOJADM_DOMAINS.includes(parsedUrl.hostname)) {
               results = await scrapeMojadm(url, pagesToScrape, onProgress, abortController.signal);
+            } else if (ALZA_DOMAINS.includes(parsedUrl.hostname)) {
+              results = await scrapeAlza(url, pagesToScrape, onProgress, abortController.signal);
+            } else if (NAY_DOMAINS.includes(parsedUrl.hostname)) {
+              results = await scrapeNay(url, pagesToScrape, onProgress, abortController.signal);
+            } else if (DECATHLON_DOMAINS.includes(parsedUrl.hostname)) {
+              results = await scrapeDecathlon(url, pagesToScrape, onProgress, abortController.signal);
             }
 
             sendEvent({ type: 'complete', results });
@@ -88,6 +100,12 @@ export async function GET(request) {
       results = await scrapeBazos(url, pagesToScrape);
     } else if (MOJADM_DOMAINS.includes(parsedUrl.hostname)) {
       results = await scrapeMojadm(url, pagesToScrape);
+    } else if (ALZA_DOMAINS.includes(parsedUrl.hostname)) {
+      results = await scrapeAlza(url, pagesToScrape);
+    } else if (NAY_DOMAINS.includes(parsedUrl.hostname)) {
+      results = await scrapeNay(url, pagesToScrape);
+    } else if (DECATHLON_DOMAINS.includes(parsedUrl.hostname)) {
+      results = await scrapeDecathlon(url, pagesToScrape);
     } else {
       return new Response(JSON.stringify({ error: 'Unsupported domain' }), {
         status: 400,

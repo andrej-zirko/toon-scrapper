@@ -25,6 +25,12 @@ export default function Home() {
         return 'bazos';
       } else if (hostname.includes('mojadm.sk')) {
         return 'mojadm';
+      } else if (hostname.includes('alza.sk')) {
+        return 'alza';
+      } else if (hostname.includes('nay.sk')) {
+        return 'nay';
+      } else if (hostname.includes('decathlon.sk')) {
+        return 'decathlon';
       }
       return null;
     } catch {
@@ -163,13 +169,31 @@ export default function Home() {
                 }`}>
                 <img src="/logos/mojadm.png" alt="mojadm.sk" className="h-6" />
               </div>
+              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'alza'
+                ? 'border-purple-500 bg-purple-50 shadow-sm'
+                : 'border-gray-200 bg-white opacity-60'
+                }`}>
+                <img src="/logos/alza.png" alt="Alza.sk" className="h-6" />
+              </div>
+              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'nay'
+                ? 'border-green-500 bg-green-50 shadow-sm'
+                : 'border-gray-200 bg-white opacity-60'
+                }`}>
+                <img src="/logos/nay.png" alt="NAY.sk" className="h-6" />
+              </div>
+              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'decathlon'
+                ? 'border-blue-600 bg-blue-50 shadow-sm'
+                : 'border-gray-200 bg-white opacity-60'
+                }`}>
+                <img src="/logos/decathlon.png" alt="Decathlon.sk" className="h-6" />
+              </div>
             </div>
             {detectedSite && (
               <span className="text-sm text-green-600 font-medium flex items-center gap-1">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Detected: {detectedSite === 'bazos' ? 'Bazos.sk' : 'mojadm.sk'}
+                Detected: {detectedSite === 'bazos' ? 'Bazos.sk' : detectedSite === 'mojadm' ? 'mojadm.sk' : detectedSite === 'alza' ? 'Alza.sk' : detectedSite === 'nay' ? 'NAY.sk' : 'Decathlon.sk'}
               </span>
             )}
           </div>
