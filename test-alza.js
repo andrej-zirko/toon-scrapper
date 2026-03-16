@@ -5,8 +5,8 @@ async function test() {
 
     try {
         const results = await scrapeAlza(
-            'https://www.alza.sk/pripravky-na-sprchovanie/18856049.htm#f&cud=0&pg=1&pn=7&prod=&par3149=0.5--5&sc=1440',
-            2, // Test 2 pages to verify pagination
+            'https://www.alza.sk/omega-mastne-kyseliny/18862693.htm#f&availabilityFilterValue=1&cud=0&pg=1&prod=&sc=54',
+            5,
             (msg, count) => {
                 console.log(`Progress: ${msg} (${count} items)`);
             }
@@ -25,7 +25,6 @@ async function test() {
         }
     } catch (err) {
         console.error('Error:', err.message);
-        console.error(err.stack);
     }
 }
 

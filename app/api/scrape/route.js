@@ -3,14 +3,26 @@ import { scrapeMojadm } from '@/scraper-mojadm';
 import { scrapeAlza } from '@/scraper-alza';
 import { scrapeNay } from '@/scraper-nay';
 import { scrapeDecathlon } from '@/scraper-decathlon';
+import {
+  BAZOS_DOMAINS, MOJADM_DOMAINS, ALZA_DOMAINS, NAY_DOMAINS, DECATHLON_DOMAINS,
+  isDomainAllowed, parsePages,
+} from '@/lib/validation';
 
-const BAZOS_DOMAINS = ['bazos.sk', 'pc.bazos.sk', 'www.bazos.sk', 'auto.bazos.sk', 'dom.bazos.sk', 'elektro.bazos.sk', 'hudba.bazos.sk', 'knihy.bazos.sk', 'mobily.bazos.sk', 'motocykle.bazos.sk', 'nabytok.bazos.sk', 'oblecenie.bazos.sk', 'sluzby.bazos.sk', 'sport.bazos.sk', 'stroje.bazos.sk', 'vstupenky.bazos.sk', 'zvierata.bazos.sk', 'deti.bazos.sk', 'ostatne.bazos.sk'];
-const MOJADM_DOMAINS = ['mojadm.sk', 'www.mojadm.sk'];
-const ALZA_DOMAINS = ['alza.sk', 'www.alza.sk'];
-const NAY_DOMAINS = ['nay.sk', 'www.nay.sk'];
-const DECATHLON_DOMAINS = ['decathlon.sk', 'www.decathlon.sk'];
-const ALLOWED_DOMAINS = [...BAZOS_DOMAINS, ...MOJADM_DOMAINS, ...ALZA_DOMAINS, ...NAY_DOMAINS, ...DECATHLON_DOMAINS];
-const MAX_PAGES = 20;
+function getScraperForDomain(hostname) {
+  if (BAZOS_DOMAINS.includes(hostname)) return scrapeBazos;
+  if (MOJADM_DOMAINS.includes(hostname)) return scrapeMojadm;
+  if (ALZA_DOMAINS.includes(hostname)) return scrapeAlza;
+  if (NAY_DOMAINS.includes(hostname)) return scrapeNay;
+  if (DECATHLON_DOMAINS.includes(hostname)) return scrapeDecathlon;
+  return null;
+}
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -19,108 +31,74 @@ export async function GET(request) {
   const stream = searchParams.get('stream') === 'true';
 
   if (!url) {
-    return new Response(JSON.stringify({ error: 'URL is required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
+    return jsonResponse({ error: 'URL is required' }, 400);
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return jsonResponse({ error: 'Invalid URL format' }, 400);
+  }
+
+  if (!isDomainAllowed(parsedUrl.hostname)) {
+    return jsonResponse({ error: 'Invalid domain. Only bazos.sk, mojadm.sk, alza.sk, nay.sk, and decathlon.sk are supported.' }, 400);
+  }
+
+  const scraper = getScraperForDomain(parsedUrl.hostname);
+  if (!scraper) {
+    return jsonResponse({ error: 'Unsupported domain' }, 400);
+  }
+
+  const pagesToScrape = parsePages(pages);
+
+  if (stream) {
+    const encoder = new TextEncoder();
+    const abortController = new AbortController();
+
+    const customReadable = new ReadableStream({
+      async start(controller) {
+        const sendEvent = (data) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+        };
+
+        try {
+          const onProgress = (message, count) => {
+            sendEvent({ type: 'progress', message, count });
+          };
+
+          const results = await scraper(url, pagesToScrape, onProgress, abortController.signal);
+          sendEvent({ type: 'complete', results });
+        } catch (error) {
+          if (error.message === 'Scraping cancelled') {
+            sendEvent({ type: 'cancelled', message: 'Scraping was cancelled' });
+          } else {
+            console.error('Scraping error:', error);
+            sendEvent({ type: 'error', message: 'Scraping failed' });
+          }
+        } finally {
+          controller.close();
+        }
+      },
+      cancel() {
+        abortController.abort();
+      }
+    });
+
+    return new Response(customReadable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
   }
 
   try {
-    const parsedUrl = new URL(url);
-    if (!ALLOWED_DOMAINS.includes(parsedUrl.hostname)) {
-      return new Response(JSON.stringify({ error: 'Invalid domain. Only bazos.sk, mojadm.sk, alza.sk, nay.sk, and decathlon.sk are supported.' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const pagesToScrape = pages ? Math.min(parseInt(pages), MAX_PAGES) : Infinity;
-
-    // If streaming is requested, use Server-Sent Events
-    if (stream) {
-      const encoder = new TextEncoder();
-      const abortController = new AbortController();
-
-      const customReadable = new ReadableStream({
-        async start(controller) {
-          const sendEvent = (data) => {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-          };
-
-          try {
-            // Progress callback for scrapers
-            const onProgress = (message, count) => {
-              sendEvent({ type: 'progress', message, count });
-            };
-
-            let results;
-            if (BAZOS_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeBazos(url, pagesToScrape, onProgress, abortController.signal);
-            } else if (MOJADM_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeMojadm(url, pagesToScrape, onProgress, abortController.signal);
-            } else if (ALZA_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeAlza(url, pagesToScrape, onProgress, abortController.signal);
-            } else if (NAY_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeNay(url, pagesToScrape, onProgress, abortController.signal);
-            } else if (DECATHLON_DOMAINS.includes(parsedUrl.hostname)) {
-              results = await scrapeDecathlon(url, pagesToScrape, onProgress, abortController.signal);
-            }
-
-            sendEvent({ type: 'complete', results });
-          } catch (error) {
-            console.error('Scraping error:', error);
-            if (error.message === 'Scraping cancelled') {
-              sendEvent({ type: 'cancelled', message: 'Scraping was cancelled' });
-            } else {
-              sendEvent({ type: 'error', message: 'Scraping failed' });
-            }
-          } finally {
-            controller.close();
-          }
-        },
-        cancel() {
-          // This is called when the client closes the connection
-          console.log('Client disconnected, aborting scrape...');
-          abortController.abort();
-        }
-      });
-
-      return new Response(customReadable, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        },
-      });
-    }
-
-    // Non-streaming mode (backward compatible)
-    let results;
-    if (BAZOS_DOMAINS.includes(parsedUrl.hostname)) {
-      results = await scrapeBazos(url, pagesToScrape);
-    } else if (MOJADM_DOMAINS.includes(parsedUrl.hostname)) {
-      results = await scrapeMojadm(url, pagesToScrape);
-    } else if (ALZA_DOMAINS.includes(parsedUrl.hostname)) {
-      results = await scrapeAlza(url, pagesToScrape);
-    } else if (NAY_DOMAINS.includes(parsedUrl.hostname)) {
-      results = await scrapeNay(url, pagesToScrape);
-    } else if (DECATHLON_DOMAINS.includes(parsedUrl.hostname)) {
-      results = await scrapeDecathlon(url, pagesToScrape);
-    } else {
-      return new Response(JSON.stringify({ error: 'Unsupported domain' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    return new Response(JSON.stringify({ results }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
+    const results = await scraper(url, pagesToScrape);
+    return jsonResponse({ results });
   } catch (error) {
     console.error('Scraping error:', error);
-    return new Response(JSON.stringify({ error: 'Scraping failed' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return jsonResponse({ error: 'Scraping failed' }, 500);
   }
 }

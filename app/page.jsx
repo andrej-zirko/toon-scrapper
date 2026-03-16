@@ -1,11 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+const SITE_CONFIG = {
+  bazos: { label: 'Bazos.sk', border: 'border-orange-500', bg: 'bg-orange-50' },
+  mojadm: { label: 'mojadm.sk', border: 'border-blue-500', bg: 'bg-blue-50' },
+  alza: { label: 'Alza.sk', border: 'border-purple-500', bg: 'bg-purple-50' },
+  nay: { label: 'NAY.sk', border: 'border-green-500', bg: 'bg-green-50' },
+  decathlon: { label: 'Decathlon.sk', border: 'border-blue-600', bg: 'bg-blue-50' },
+};
+
+function detectSite(urlString) {
+  try {
+    const hostname = new URL(urlString).hostname;
+    if (hostname.includes('bazos.sk')) return 'bazos';
+    if (hostname.includes('mojadm.sk')) return 'mojadm';
+    if (hostname.includes('alza.sk')) return 'alza';
+    if (hostname.includes('nay.sk')) return 'nay';
+    if (hostname.includes('decathlon.sk')) return 'decathlon';
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Home() {
-  const [url, setUrl] = useState('https://www.bazos.sk/search.php?hledat=dell+optiplex&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&Submit=H%C4%BEada%C5%A5&order=&kitx=ano');
+  const [url, setUrl] = useState('');
   const [limitPages, setLimitPages] = useState(true);
-  const [pages, setPages] = useState('1'); // Default 1, but string to allow empty
+  const [pages, setPages] = useState('1');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -13,120 +35,65 @@ export default function Home() {
   const [detectedSite, setDetectedSite] = useState(null);
   const [progressMessage, setProgressMessage] = useState('');
   const [productsFound, setProductsFound] = useState(0);
-  const [eventSourceRef, setEventSourceRef] = useState(null);
+  const eventSourceRef = useRef(null);
 
-  // Detect which site is being used based on URL
-  const detectSite = (urlString) => {
-    try {
-      const parsedUrl = new URL(urlString);
-      const hostname = parsedUrl.hostname;
-
-      if (hostname.includes('bazos.sk')) {
-        return 'bazos';
-      } else if (hostname.includes('mojadm.sk')) {
-        return 'mojadm';
-      } else if (hostname.includes('alza.sk')) {
-        return 'alza';
-      } else if (hostname.includes('nay.sk')) {
-        return 'nay';
-      } else if (hostname.includes('decathlon.sk')) {
-        return 'decathlon';
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Auto-detect site when URL changes
   useEffect(() => {
     setDetectedSite(detectSite(url));
   }, [url]);
 
-  const handleScrape = async () => {
+  const cleanup = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setLoading(false);
+    setProgressMessage('');
+  }, []);
+
+  const handleScrape = () => {
     setLoading(true);
     setError(null);
     setResults([]);
     setProgressMessage('Starting scrape...');
     setProductsFound(0);
 
-    try {
-      // Only append pages parameter if it has a value and limitPages is true
-      const pageParam = (limitPages && pages) ? `&pages=${pages}` : '';
-      const streamUrl = `/api/scrape?url=${encodeURIComponent(url)}${pageParam}&stream=true`;
+    const pageParam = (limitPages && pages) ? `&pages=${pages}` : '';
+    const streamUrl = `/api/scrape?url=${encodeURIComponent(url)}${pageParam}&stream=true`;
 
-      console.log('Creating EventSource with URL:', streamUrl);
-      const eventSource = new EventSource(streamUrl);
-      setEventSourceRef(eventSource);
+    const eventSource = new EventSource(streamUrl);
+    eventSourceRef.current = eventSource;
 
-      eventSource.onopen = () => {
-        console.log('EventSource connection opened');
-      };
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
 
-      eventSource.onmessage = (event) => {
-        console.log('EventSource message received:', event.data);
-        try {
-          const data = JSON.parse(event.data);
-          console.log('Parsed data:', data);
-
-          if (data.type === 'progress') {
-            console.log('Progress update:', data.message, 'Count:', data.count);
-            setProgressMessage(data.message);
-            setProductsFound(data.count || 0);
-          } else if (data.type === 'complete') {
-            console.log('Scraping complete, results:', data.results?.length);
-            setResults(data.results || []);
-            setProductsFound(data.results?.length || 0);
-            setProgressMessage('');
-            setLoading(false);
-            setEventSourceRef(null);
-            eventSource.close();
-          } else if (data.type === 'error') {
-            console.error('Scraping error:', data.message);
-            setError(data.message);
-            setProgressMessage('');
-            setLoading(false);
-            setEventSourceRef(null);
-            eventSource.close();
-          } else if (data.type === 'cancelled') {
-            console.log('Scraping cancelled');
-            setProgressMessage('');
-            setLoading(false);
-            setEventSourceRef(null);
-            eventSource.close();
-          }
-        } catch (parseError) {
-          console.error('Failed to parse event data:', parseError, event.data);
+        if (data.type === 'progress') {
+          setProgressMessage(data.message);
+          setProductsFound(data.count || 0);
+        } else if (data.type === 'complete') {
+          setResults(data.results || []);
+          setProductsFound(data.results?.length || 0);
+          cleanup();
+        } else if (data.type === 'error') {
+          setError(data.message);
+          cleanup();
+        } else if (data.type === 'cancelled') {
+          cleanup();
         }
-      };
+      } catch {
+        // Ignore parse errors from malformed SSE data
+      }
+    };
 
-      eventSource.onerror = (err) => {
-        console.error('EventSource error:', err);
-        setError('Connection error occurred');
-        setProgressMessage('');
-        setLoading(false);
-        setEventSourceRef(null);
-        eventSource.close();
-      };
-
-    } catch (err) {
-      console.error('Scrape error:', err);
-      setError(err.message);
-      setProgressMessage('');
-      setLoading(false);
-      setEventSourceRef(null);
-    }
+    eventSource.onerror = () => {
+      setError('Connection error occurred');
+      cleanup();
+    };
   };
 
   const handleCancel = () => {
-    if (eventSourceRef) {
-      console.log('Cancelling scrape...');
-      eventSourceRef.close();
-      setEventSourceRef(null);
-      setLoading(false);
-      setProgressMessage('');
-      setError(null);
-    }
+    cleanup();
+    setError(null);
   };
 
   const handleCopy = () => {
@@ -136,15 +103,13 @@ export default function Home() {
       return `| "${clean(item.heading)}" | "${clean(item.body)}" | "${clean(item.price)}" | "${item.link}" |`;
     }).join('\n');
 
-    const text = `${header}\n${rows}`;
-    navigator.clipboard.writeText(text);
+    navigator.clipboard.writeText(`${header}\n${rows}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b border-gray-200 py-4">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center mb-3">
@@ -153,47 +118,28 @@ export default function Home() {
             </h1>
           </div>
 
-          {/* Supported Sites Indicator */}
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-600 font-medium">Supported sites:</span>
             <div className="flex gap-2">
-              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'bazos'
-                ? 'border-orange-500 bg-orange-50 shadow-sm'
-                : 'border-gray-200 bg-white opacity-60'
-                }`}>
-                <img src="/logos/bazos.png" alt="Bazos.sk" className="h-6" />
-              </div>
-              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'mojadm'
-                ? 'border-blue-500 bg-blue-50 shadow-sm'
-                : 'border-gray-200 bg-white opacity-60'
-                }`}>
-                <img src="/logos/mojadm.png" alt="mojadm.sk" className="h-6" />
-              </div>
-              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'alza'
-                ? 'border-purple-500 bg-purple-50 shadow-sm'
-                : 'border-gray-200 bg-white opacity-60'
-                }`}>
-                <img src="/logos/alza.png" alt="Alza.sk" className="h-6" />
-              </div>
-              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'nay'
-                ? 'border-green-500 bg-green-50 shadow-sm'
-                : 'border-gray-200 bg-white opacity-60'
-                }`}>
-                <img src="/logos/nay.png" alt="NAY.sk" className="h-6" />
-              </div>
-              <div className={`px-3 py-1.5 rounded-lg border-2 transition-all ${detectedSite === 'decathlon'
-                ? 'border-blue-600 bg-blue-50 shadow-sm'
-                : 'border-gray-200 bg-white opacity-60'
-                }`}>
-                <img src="/logos/decathlon.png" alt="Decathlon.sk" className="h-6" />
-              </div>
+              {Object.entries(SITE_CONFIG).map(([key, config]) => (
+                <div
+                  key={key}
+                  className={`px-3 py-1.5 rounded-lg border-2 transition-all ${
+                    detectedSite === key
+                      ? `${config.border} ${config.bg} shadow-sm`
+                      : 'border-gray-200 bg-white opacity-60'
+                  }`}
+                >
+                  <img src={`/logos/${key === 'mojadm' ? 'mojadm' : key}.png`} alt={config.label} className="h-6" />
+                </div>
+              ))}
             </div>
             {detectedSite && (
               <span className="text-sm text-green-600 font-medium flex items-center gap-1">
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                 </svg>
-                Detected: {detectedSite === 'bazos' ? 'Bazos.sk' : detectedSite === 'mojadm' ? 'mojadm.sk' : detectedSite === 'alza' ? 'Alza.sk' : detectedSite === 'nay' ? 'NAY.sk' : 'Decathlon.sk'}
+                Detected: {SITE_CONFIG[detectedSite].label}
               </span>
             )}
           </div>
@@ -201,17 +147,15 @@ export default function Home() {
       </header>
 
       <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
-
-        {/* Control Panel */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8 transition-all hover:shadow-md">
           <div className="flex flex-col md:flex-row gap-4 items-end md:items-center">
             <div className="flex-grow w-full">
               <label className="block text-sm font-medium text-gray-700 mb-1">Search URL</label>
               <input
-                type="text"
+                type="url"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="Paste Bazos URL here..."
+                placeholder="Paste a product listing URL here..."
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all outline-none"
               />
             </div>
@@ -238,6 +182,7 @@ export default function Home() {
                   placeholder="Pages"
                   className="w-full p-3 border border-orange-200 bg-orange-50 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all outline-none"
                   min="1"
+                  max="20"
                 />
               ) : (
                 <div className="h-[50px] flex items-center px-3 text-gray-400 text-sm italic border border-transparent">
@@ -261,7 +206,8 @@ export default function Home() {
             ) : (
               <button
                 onClick={handleScrape}
-                className="w-full md:w-auto px-8 py-3 rounded-lg font-medium text-white shadow-sm transition-all transform active:scale-95 bg-orange-600 hover:bg-orange-700 hover:shadow-md"
+                disabled={!detectedSite}
+                className="w-full md:w-auto px-8 py-3 rounded-lg font-medium text-white shadow-sm transition-all transform active:scale-95 bg-orange-600 hover:bg-orange-700 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Scrape Now
               </button>
@@ -274,7 +220,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Progress Message */}
           {loading && progressMessage && (
             <div className="mt-4 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r">
               <div className="flex items-center gap-3">
@@ -297,7 +242,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Results Area */}
         {results.length > 0 ? (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -310,10 +254,11 @@ export default function Home() {
 
               <button
                 onClick={handleCopy}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${copied
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  copied
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
               >
                 {copied ? (
                   <>

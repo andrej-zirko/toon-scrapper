@@ -1,6 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { program } = require('commander');
+const { cleanText } = require('./lib/browser');
 
 async function fetchHtml(url) {
   try {
@@ -16,10 +16,6 @@ async function fetchHtml(url) {
   }
 }
 
-function cleanText(text) {
-  return text ? text.replace(/\s+/g, ' ').trim() : '';
-}
-
 async function scrapeItem(link, basicInfo) {
   const html = await fetchHtml(link);
   if (!html) return { ...basicInfo, body: '' };
@@ -29,7 +25,7 @@ async function scrapeItem(link, basicInfo) {
 
   return {
     ...basicInfo,
-    body: body || basicInfo.summary // Fallback to summary if detailed body is missing
+    body: body || basicInfo.summary
   };
 }
 
@@ -38,18 +34,14 @@ async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abo
   let pageCount = 0;
   const allItems = [];
 
-  console.error('Starting scrape...');
   if (onProgress) onProgress('Starting Bazos scrape...', 0);
 
   while (currentUrl && pageCount < maxPages) {
-    // Check for cancellation
     if (abortSignal?.aborted) {
-      console.error('Scraping cancelled by user');
       if (onProgress) onProgress('Scraping cancelled', allItems.length);
       throw new Error('Scraping cancelled');
     }
 
-    console.error(`Scraping page ${pageCount + 1}: ${currentUrl}`);
     const html = await fetchHtml(currentUrl);
     if (!html) break;
 
@@ -73,10 +65,7 @@ async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abo
       }
     });
 
-    if (items.length === 0) {
-      console.error('No items found on this page.');
-      break;
-    }
+    if (items.length === 0) break;
 
     for (let i = 0; i < items.length; i += 5) {
       const batch = items.slice(i, i + 5);
@@ -100,12 +89,12 @@ async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abo
     if (pageCount >= maxPages) break;
   }
 
-  console.error(`\nScraping complete. ${allItems.length} items found.`);
   return allItems;
 }
 
 // CLI Interface
 if (require.main === module) {
+  const { program } = require('commander');
   program
     .requiredOption('-u, --url <url>', 'URL to scrape')
     .option('-p, --pages <number>', 'Max pages to scrape', parseInt)
@@ -120,12 +109,10 @@ if (require.main === module) {
         const heading = item.heading.replace(/\|/g, '/');
         const body = item.body.replace(/\|/g, '/');
         const price = item.price.replace(/\|/g, '/');
-        const link = item.link;
-        console.log(`| "${heading}" | "${body}" | "${price}" | "${link}" |`);
+        console.log(`| "${heading}" | "${body}" | "${price}" | "${item.link}" |`);
       });
     })
     .catch(err => console.error(err));
 }
 
 module.exports = { scrapeBazos };
-
