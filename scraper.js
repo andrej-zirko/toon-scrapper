@@ -30,6 +30,7 @@ async function scrapeItem(link, basicInfo) {
 }
 
 async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abortSignal = null) {
+  const baseUrl = new URL(startUrl).origin;
   let currentUrl = startUrl;
   let pageCount = 0;
   const allItems = [];
@@ -53,7 +54,7 @@ async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abo
       const titleEl = $el.find('.inzeratynadpis .nadpis a');
       const link = titleEl.attr('href');
 
-      const fullLink = link ? (link.startsWith('http') ? link : `https://pc.bazos.sk${link}`) : null;
+      const fullLink = link ? (link.startsWith('http') ? link : `${baseUrl}${link}`) : null;
 
       if (fullLink) {
         items.push({
@@ -81,7 +82,7 @@ async function scrapeBazos(startUrl, maxPages = Infinity, onProgress = null, abo
     const nextLinkEl = $('.strankovani a:contains("Ďalšia")');
     if (nextLinkEl.length > 0) {
       const nextHref = nextLinkEl.attr('href');
-      currentUrl = nextHref ? (nextHref.startsWith('http') ? nextHref : `https://www.bazos.sk/${nextHref}`) : null;
+      currentUrl = nextHref ? (nextHref.startsWith('http') ? nextHref : `${baseUrl}${nextHref}`) : null;
     } else {
       currentUrl = null;
     }
